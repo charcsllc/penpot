@@ -157,7 +157,7 @@
              resolution))
 
 (defn- analyze-entries
-  [state entries]
+  [state entries on-analyze-end]
   (->> (imp/analyze entries)
        (rx/mapcat #(rx/delay emit-delay (rx/of %)))
        (rx/filter some?)
@@ -166,7 +166,11 @@
           (when (some? (:error message))
             (st/emit! (ev/event {::ev/name "import-files-error"
                                  :error (:error message)})))
-          (swap! state update-with-analyze-result message)))))
+          (swap! state update-with-analyze-result message))
+        (constantly nil)
+        ;; the wizard cannot offer its import step until it knows every
+        ;; file of every container
+        on-analyze-end)))
 
 (defn- import-files
   [state library-resolution-data* project-id entries on-job]
@@ -188,28 +192,40 @@
 (mf/defc import-entry*
   {::mf/memo true
    ::mf/private true}
-  [{:keys [entries entry edition can-be-deleted is-progress on-edit on-change on-delete]}]
+  [{:keys [entries entry edition on-edit on-change on-delete]}]
   (let [status          (:status entry)
         ;; FIXME: rename to format
         format          (:type entry)
 
-        loading?        (or (= :analyze status)
-                            (= :import-queued status)
-                            (= :import-progress status)
-                            (and is-progress (= :import-ready status)))
         analyze-error?  (= :analyze-error status)
-        import-success? (= :import-success status)
         import-error?   (= :import-error status)
         import-ready?   (= :import-ready status)
 
-        is-shared?      (:shared entry)
         progress        (:progress entry)
         upload?         (= :upload (:stage progress))
-        bar-pct         (jp/upload-pct progress)
-        size-text       (imp/format-file-size (:size entry))
-        subtitle        (if (some? size-text)
-                          (str size-text " " (imp/entry-extension entry))
-                          (imp/entry-extension entry))
+
+        ;; the container the file came in is fully sent, but its job does
+        ;; not exist yet: the wizard is still uploading the other files
+        ready?          (and (= :import-progress status)
+                             upload?
+                             (imp/upload-done? entry))
+
+        ;; a file can be dropped while the wizard has not started yet: once
+        ;; the import runs, its entries are committed
+        can-be-deleted? (and import-ready?
+                             (> (count entries) 1))
+
+        is-shared?      (:shared entry)
+        subtitle        (imp/format-file-size (:size entry))
+
+        ;; the milestone in course and the files already imported are the
+        ;; business of the header: a container reports one milestone for
+        ;; every file it brought, and a row would repeat it
+        [status-icon status-text]
+        (cond
+          ready?                    [i/status-tick (tr "dashboard.import.status.ready")]
+          (= :import-queued status) [i/clock (tr "dashboard.import.status.waiting")]
+          :else                     [nil nil])
 
         file-id         (:file-id entry)
         editing?        (and (some? file-id) (= edition file-id))
@@ -249,8 +265,8 @@
 
     [:div {:class (stl/css-case
                    :file-entry true
-                   :loading  loading?
-                   :success  import-success?
+                   :ready    ready?
+                   :success  (= :import-success status)
                    :error    (or import-error? analyze-error?)
                    :editable (and import-ready? (not editing?)))}
 
@@ -274,15 +290,17 @@
           [:> text* {:class (stl/css :file-name-label)
                      :as "span"
                      :typography t/body-medium}
-           (:name entry)
+           [:span {:class (stl/css :file-name-text)}
+            (:name entry)]
            (when ^boolean is-shared?
              [:> icon* {:icon-id i/library :class (stl/css :file-label-icon)}])]
-          [:> text* {:class (stl/css :file-subtitle)
-                     :as "span"
-                     :typography t/body-small}
-           subtitle]])]
+          (when (some? subtitle)
+            [:> text* {:class (stl/css :file-subtitle)
+                       :as "span"
+                       :typography t/body-small}
+             subtitle])])]
 
-      (when ^boolean (or editable? can-be-deleted)
+      (when ^boolean (or editable? can-be-deleted?)
         [:div {:class (stl/css :edit-entry-buttons)}
          (when ^boolean editable?
            [:> icon-button* {:on-click on-edit'
@@ -290,15 +308,23 @@
                              :icon-size "s"
                              :aria-label (tr "labels.edit")
                              :icon i/curve}])
-         (when ^boolean can-be-deleted
+         (when ^boolean can-be-deleted?
            [:> icon-button* {:on-click on-delete'
                              :variant "ghost"
                              :icon-size "s"
                              :aria-label (tr "labels.delete")
-                             :icon i/delete}])])]
-     [:div {:class (stl/css :file-status)}
-      (cond
-        analyze-error?
+                             :icon i/delete}])])
+
+      (when (some? status-text)
+        [:div {:class (stl/css :file-status)}
+         (when (some? status-icon)
+           [:> icon* {:icon-id status-icon :size "s"}])
+         [:> text* {:as "span"
+                    :typography t/body-medium}
+          status-text]])]
+
+     (when ^boolean (or analyze-error? import-error?)
+       [:div {:class (stl/css :file-error)}
         [:> text* {:class (stl/css :error-message)
                    :as "span"
                    :typography t/body-small}
@@ -306,39 +332,9 @@
          ;; label), never a key
          (if (some? (:error entry))
            (:error entry)
-           (tr "dashboard.import.analyze-error"))]
-
-        import-error?
-        [:> text* {:class (stl/css :error-message)
-                   :as "span"
-                   :typography t/body-small}
-         (if (some? (:error entry))
-           (:error entry)
-           (tr "labels.error"))]
-
-        (and (not import-success?)
-             (or (= :import-queued status) (= :import-progress status)))
-        ;; the client cannot know a global index and a global total of
-        ;; operations, so the bar is always the animated one: it starts
-        ;; moving at the queued label and keeps moving through every
-        ;; milestone of the job
-        (let [status-text (if (= :import-queued status)
-                            (tr "jobs.queued")
-                            (when (some? progress)
-                              (jp/milestone-text progress :file? true)))]
-          [:div {:class (stl/css :upload-progress)}
-           [:div {:class (stl/css-case :progress-bar true
-                                       :determinate upload?)
-                  :role "progressbar"
-                  :aria-valuemin 0
-                  :aria-valuemax 100
-                  :aria-valuenow (when upload? bar-pct)}
-            [:div {:class (stl/css :progress-fill)
-                   :style (when upload?
-                            #js {:width (str bar-pct "%")})}]]
-           (when (some? status-text)
-             [:div {:class (stl/css :progress-message)}
-              status-text])]))]
+           (if analyze-error?
+             (tr "dashboard.import.analyze-error")
+             (tr "labels.error")))]])
 
      ;; This is legacy code, will be removed when legacy-zip format is removed
      [:div {:class (stl/css :linked-libraries)}
@@ -588,26 +584,64 @@
           (when (< idx 2)
             [:span {:class (stl/css :step-line) :aria-hidden "true"}])]))]))
 
+(defn- importing-title
+  "The title of the phase that rebuilds the files, with the files the
+  wizard is working on and the ones already done."
+  [total done]
+  (dm/str (tr "dashboard.import.importing.title" (i18n/c total))
+          " · "
+          (tr "dashboard.import.importing.done" (i18n/c done))))
+
 (mf/defc import-phase-header*
   {::mf/private true}
-  [{:keys [status step]}]
-  (let [[title desc]
-        (cond
-          (= :analyze status)
-          [(tr "dashboard.import.check.title") (tr "dashboard.import.check.message")]
+  [{:keys [status step entries template]}]
+  (let [total   (+ (count entries) (if (some? template) 1 0))
+        ;; the file the job is working on is reported by the job itself, so
+        ;; the counter moves while a container rebuilds its files one by one
+        done    (imp/imported-count entries)
 
-          (= :import-ready status)
-          [(tr "dashboard.import.ready.title") (tr "dashboard.import.ready.message")]
+        phase   (cond
+                  (= :analyze status)           :check
+                  (= :import-ready status)      :ready
+                  (not= :import-progress status) nil
+                  (= :upload step)              :upload
+                  (imp/waiting-slot? entries)   :queued
+                  :else                         :importing)
 
-          (and (= :import-progress status) (= :upload step))
-          [(tr "dashboard.import.upload.title") (tr "dashboard.import.upload.message")]
+        ;; the bar measures the whole import, never a single file: the
+        ;; upload of every container put together while they are sent, and
+        ;; the animated one from there on, because the stages of a job are
+        ;; not comparable one with another
+        [title desc pct]
+        (case phase
+          :check     [(tr "dashboard.import.check.title")
+                      (tr "dashboard.import.check.message")
+                      nil]
+          :ready     [(tr "dashboard.import.ready.title")
+                      (tr "dashboard.import.ready.message")
+                      nil]
+          :upload    [(tr "dashboard.import.upload.title")
+                      (tr "dashboard.import.upload.message")
+                      (imp/upload-pct entries)]
+          :queued    [(tr "dashboard.import.queued.title")
+                      (tr "dashboard.import.queued.message")
+                      nil]
+          :importing [(importing-title total done)
+                      (tr "dashboard.import.importing.message")
+                      nil]
+          [nil nil nil])
 
-          (and (= :import-progress status) (= :import step))
-          [(tr "dashboard.import.importing.title") (tr "dashboard.import.importing.message")]
+        ;; the milestone in course takes the place of the message: the files
+        ;; of a container share it, so writing it here keeps it once
+        desc
+        (or (jp/current-milestone-text entries) desc)
 
-          :else
-          [nil nil])]
-    (when (some? title)
+        ;; the bar paints what is running: indeterminate while the wizard
+        ;; works —checking, waiting for a slot, rebuilding— and determinate
+        ;; while it uploads, which is the only percentage it really knows
+        bar? (contains? #{:check :upload :queued :importing} phase)]
+
+    (when (some? phase)
       [:div {:class (stl/css :phase-header)}
        [:> heading* {:level 3
                      :typography t/headline-medium
@@ -616,7 +650,17 @@
        [:> text* {:as "p"
                   :typography t/body-medium
                   :class (stl/css :phase-message)}
-        desc]])))
+        desc]
+       (when bar?
+         [:div {:class (stl/css-case :progress-bar true
+                                     :determinate (some? pct))
+                :role "progressbar"
+                :aria-valuemin 0
+                :aria-valuemax 100
+                :aria-valuenow pct}
+          [:div {:class (stl/css :progress-fill)
+                 :style (when (some? pct)
+                          #js {:width (str pct "%")})}]])])))
 
 (mf/defc import-files-stage*
   {::mf/private true}
@@ -626,7 +670,10 @@
   [:*
    [:> import-steps* {:step step}]
    [:div {:class (stl/css :modal-content)}
-    [:> import-phase-header* {:status status :step step}]
+    [:> import-phase-header* {:status status
+                              :step step
+                              :entries entries
+                              :template template}]
     (when (and (= :analyze status) errors?)
       [:> context-notification*
        {:level :warning
@@ -685,16 +732,13 @@
                            :key (dm/str (:uri entry) "/" (:file-id entry))
                            :entry entry
                            :entries entries
-                           :is-progress (= :import-progress status)
                            :on-edit on-edit
                            :on-change on-change
-                           :on-delete on-delete
-                           :can-be-deleted (> (count entries) 1)}]))
+                           :on-delete on-delete}]))
 
     (when (and (some? template)
                (not (imp/awaiting-analysis? status errors?)))
-      [:> import-entry* {:entry (assoc template :status status)
-                         :can-be-deleted false}])]
+      [:> import-entry* {:entry (assoc template :status status)}])]
 
    [:div {:class (stl/css :modal-footer)}
     [:div {:class (stl/css :action-buttons)}
@@ -802,6 +846,13 @@
 
         status*     (mf/use-state :analyze)
         status      (deref status*)
+
+        ;; the analysis of the dropped files reached its end: only then the
+        ;; wizard knows every file it is going to import
+        analysis-ended*
+        (mf/use-state false)
+        analysis-ended?
+        (deref analysis-ended*)
 
         ;; Jobs created while importing, to cancel them on demand, and
         ;; the subscription to their messages, to stop listening.
@@ -1043,13 +1094,12 @@
                  (every? #(contains? visited (:id %)) unresolved-files))
         (reset! status* :library-summary)))
 
-    (mf/with-effect [entries resolution]
+    (mf/with-effect [entries resolution analysis-ended?]
       (cond
         (some? template)
         (reset! status* :import-ready)
 
-        (and (seq entries)
-             (every? #(= :import-ready (:status %)) entries))
+        (imp/ready-to-import? entries analysis-ended?)
         (reset! status* :import-ready)
 
         (and (seq entries)
@@ -1066,7 +1116,7 @@
 
     ;; Run analyze operation on component mount
     (mf/with-effect []
-      (let [sub (analyze-entries state* entries)]
+      (let [sub (analyze-entries state* entries #(reset! analysis-ended* true))]
         (partial rx/dispose! sub)))
 
     [:div {:class (stl/css :modal-overlay)}

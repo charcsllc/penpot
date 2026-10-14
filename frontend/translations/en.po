@@ -678,6 +678,14 @@ msgid "dashboard.import.title"
 msgstr "Import file"
 
 #: src/app/main/ui/dashboard/import.cljs
+msgid "dashboard.import.status.ready"
+msgstr "Ready"
+
+#: src/app/main/ui/dashboard/import.cljs
+msgid "dashboard.import.status.waiting"
+msgstr "Waiting"
+
+#: src/app/main/ui/dashboard/import.cljs
 msgid "dashboard.import.steps.label"
 msgstr "Import steps"
 
@@ -719,11 +727,19 @@ msgstr "Sending your files. Keep this dialog open until the upload ends."
 
 #: src/app/main/ui/dashboard/import.cljs
 msgid "dashboard.import.importing.title"
-msgstr "Importing your files..."
+msgid_plural "dashboard.import.importing.title"
+msgstr[0] "Importing 1 file"
+msgstr[1] "Importing %s files"
+
+#: src/app/main/ui/dashboard/import.cljs
+msgid "dashboard.import.importing.done"
+msgid_plural "dashboard.import.importing.done"
+msgstr[0] "1 done"
+msgstr[1] "%s done"
 
 #: src/app/main/ui/dashboard/import.cljs
 msgid "dashboard.import.importing.message"
-msgstr "Creating the files in your project. This may take a moment."
+msgstr "Rebuilding pages, components and assets in your project."
 
 #: src/app/main/ui/dashboard/import.cljs:619
 msgid "dashboard.import.import-error.check-error"
@@ -766,6 +782,14 @@ msgstr "Next file"
 #: src/app/main/ui/dashboard.cljs:265
 msgid "dashboard.import.no-perms"
 msgstr "You don’t have permission to import to this team"
+
+#: src/app/main/ui/dashboard/import.cljs
+msgid "dashboard.import.queued.title"
+msgstr "Waiting to start..."
+
+#: src/app/main/ui/dashboard/import.cljs
+msgid "dashboard.import.queued.message"
+msgstr "Your files are uploaded. The import starts as soon as a slot is free."
 
 #: src/app/main/ui/dashboard/import.cljs:443
 msgid "dashboard.import.resolve-libraries"

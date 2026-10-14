@@ -729,12 +729,20 @@ msgid "dashboard.import.import-warning"
 msgstr "Algunos ficheros contenían objetos erroneos que no han sido importados."
 
 #: src/app/main/ui/dashboard/import.cljs
-msgid "dashboard.import.importing.message"
-msgstr "Creando los archivos en tu proyecto. Puede tardar un momento."
+msgid "dashboard.import.importing.title"
+msgid_plural "dashboard.import.importing.title"
+msgstr[0] "Importando 1 archivo"
+msgstr[1] "Importando %s archivos"
 
 #: src/app/main/ui/dashboard/import.cljs
-msgid "dashboard.import.importing.title"
-msgstr "Importando tus archivos..."
+msgid "dashboard.import.importing.done"
+msgid_plural "dashboard.import.importing.done"
+msgstr[0] "1 hecho"
+msgstr[1] "%s hechos"
+
+#: src/app/main/ui/dashboard/import.cljs
+msgid "dashboard.import.importing.message"
+msgstr "Reconstruyendo páginas, componentes y recursos en tu proyecto."
 
 #: src/app/main/ui/dashboard/import.cljs:710
 msgid "dashboard.import.next-file"
@@ -743,6 +751,16 @@ msgstr "Siguiente archivo"
 #: src/app/main/ui/dashboard.cljs:265
 msgid "dashboard.import.no-perms"
 msgstr "No tienes permisos para importar en este equipo"
+
+#: src/app/main/ui/dashboard/import.cljs
+msgid "dashboard.import.queued.title"
+msgstr "Esperando a empezar..."
+
+#: src/app/main/ui/dashboard/import.cljs
+msgid "dashboard.import.queued.message"
+msgstr ""
+"Tus archivos ya están subidos. La importación empieza en cuanto haya un hueco "
+"libre."
 
 #: src/app/main/ui/dashboard/import.cljs
 msgid "dashboard.import.ready.message"
@@ -769,6 +787,14 @@ msgstr "conectar a"
 #: src/app/main/ui/dashboard/import.cljs:453
 msgid "dashboard.import.resolve-libraries.original-library"
 msgstr "biblioteca original"
+
+#: src/app/main/ui/dashboard/import.cljs
+msgid "dashboard.import.status.ready"
+msgstr "Listo"
+
+#: src/app/main/ui/dashboard/import.cljs
+msgid "dashboard.import.status.waiting"
+msgstr "En espera"
 
 #: src/app/main/ui/dashboard/import.cljs
 msgid "dashboard.import.steps.check"

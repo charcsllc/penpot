@@ -94,6 +94,8 @@
   &.done {
     --step-fg-color: var(--color-foreground-secondary);
     --step-marker-border: var(--color-accent-primary);
+    --step-marker-bg-color: var(--color-accent-primary);
+    --step-marker-fg-color: var(--color-background-secondary);
   }
 }
 
@@ -106,7 +108,8 @@
   flex-shrink: 0;
   border-radius: 50%;
   border: $b-1 solid var(--step-marker-border);
-  color: var(--step-marker-border);
+  background-color: var(--step-marker-bg-color, transparent);
+  color: var(--step-marker-fg-color, var(--step-marker-border));
   font-size: px2rem(12);
   font-weight: 500;
 
@@ -181,8 +184,9 @@
   flex-direction: column;
   gap: var(--sp-m);
 
+  &.ready,
   &.success {
-    --file-entry-fg-color: var(--color-accent-sucess);
+    --file-entry-fg-color: var(--color-accent-success);
   }
 
   &.error {
@@ -194,16 +198,10 @@
   }
 }
 
-.error-message,
-.progress-message {
-  display: flex;
-  align-items: center;
-  min-block-size: $sz-32;
-  color: var(--file-entry-fg-color);
-}
-
 .error-message {
+  display: flex;
   align-items: flex-start;
+  color: var(--file-entry-fg-color);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -279,13 +277,16 @@
 }
 
 .file-status {
-  padding-inline-start: calc(px2rem(40) + var(--sp-m));
+  display: flex;
+  align-items: center;
+  gap: var(--sp-s);
+  flex-shrink: 0;
+  color: var(--file-entry-fg-color);
+  white-space: nowrap;
 }
 
-.upload-progress {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-s);
+.file-error {
+  padding-inline-start: calc(px2rem(40) + var(--sp-m));
 }
 
 .progress-bar {
@@ -301,12 +302,12 @@
   background-color: var(--color-accent-primary);
 
   // the client cannot know a global percentage of the import work, so
-  // the fill slides through the bar until the entry reaches its
-  // outcome; the upload stage is the exception, its chunk counter is
-  // real and the inline width style drives the fill then. The rule is
-  // written as physical `width` on purpose: the determinate fill gets
-  // its width from an inline style, and a logical `inline-size` here
-  // would map after the cascade and win over it.
+  // the fill slides through the bar while the jobs run; the upload is
+  // the exception, its chunk counters are real and the inline width
+  // style drives the fill then. The rule is written as physical `width`
+  // on purpose: the determinate fill gets its width from an inline
+  // style, and a logical `inline-size` here would map after the cascade
+  // and win over it.
   width: 40%;
   animation: progress-slide 1.2s ease-in-out infinite;
 
@@ -347,7 +348,15 @@
   display: flex;
   align-items: center;
   gap: var(--sp-m);
+  min-inline-size: 0;
   color: var(--color-foreground-primary);
+}
+
+// the status sits at the end of the same line: a long name gives way to it
+.file-name-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .file-label-icon {
