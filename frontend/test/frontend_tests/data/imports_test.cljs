@@ -137,6 +137,7 @@
      (mock/with-mocks*
        {http/send! (slurp-stub zip-magic)
         uz/get-entry (mock/stub (fn [_ _] (p/resolved ::entry)))
+        uz/get-entries (mock/stub (fn [_] (p/resolved #js [])))
         uz/read-as-text (mock/stub (fn [_] (p/resolved (manifest [first-id "First"]
                                                                  [second-id "Second"]))))
         uz/close (mock/stub (fn [_] nil))}
@@ -152,6 +153,55 @@
 
        (t/testing "all of them share the upload of the file that was dropped"
          (t/is (every? #(= uri (:uri %)) @seen)))))))
+
+(t/deftest ^:async a-version-3-package-sizes-every-file-with-what-it-occupies
+  (let [first-id   (uuid/next)
+        second-id  (uuid/next)
+        object-id  (str (uuid/next))
+        seen       (atom [])
+        ;; the entries of a container: every file keeps its own under
+        ;; `files/<id>`, the binaries of its media shared under `objects/`,
+        ;; and the manifest belongs to the container itself
+        entries
+        #js [#js {:filename "manifest.json"
+                  :compressedSize 100}
+             #js {:filename (str "files/" first-id ".json")
+                  :compressedSize 200}
+             #js {:filename (str "files/" first-id "/pages/one.json")
+                  :compressedSize 300}
+             #js {:filename (str "files/" first-id "/media/one.json")
+                  :compressedSize 10
+                  :content (str "{\"mediaId\": \"" object-id "\"}")}
+             #js {:filename (str "objects/" object-id ".json")
+                  :compressedSize 20}
+             #js {:filename (str "objects/" object-id ".png")
+                  :compressedSize 1000}
+             #js {:filename (str "files/" second-id ".json")
+                  :compressedSize 400}]]
+
+    (await
+     (mock/with-mocks*
+       {http/send! (slurp-stub zip-magic)
+        ;; the manifest is read through the same reader as the rest of the
+        ;; entries, so the fake carries its text and the mock answers what
+        ;; every entry holds
+        uz/get-entry (mock/stub (fn [_ _]
+                                  (p/resolved #js {:content (manifest [first-id "First"]
+                                                                      [second-id "Second"])})))
+        uz/get-entries (mock/stub (fn [_] (p/resolved entries)))
+        uz/read-as-text (mock/stub (fn [entry] (p/resolved (.-content entry))))
+        uz/close (mock/stub (fn [_] nil))}
+
+       (await (hva/observe (imp/analyze [{:uri uri :name "package.penpot" :size 10000}])
+                           {:on-next #(swap! seen conj %)}))))
+
+    (t/testing "a file occupies its own entries and the objects it references"
+      ;; 200 + 300 + 10 of its own, and 20 + 1000 of the object its media
+      ;; points at; the 100 of the manifest belong to the container
+      (t/is (= [1530 400] (mapv :size @seen))))
+
+    (t/testing "what the container occupies is kept apart"
+      (t/is (= [10000 10000] (mapv :container-size @seen))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; IMPORTING A PACKAGE
@@ -575,6 +625,37 @@
   (t/testing "a file that is not uploading yet is not done"
     (t/is (false? (imp/upload-done? {:status :import-ready})))
     (t/is (false? (imp/upload-done? {})))))
+
+(t/deftest imported-count-counts-the-files-the-job-left-behind
+  (let [file (fn [uri status progress]
+               (cond-> {:uri uri :type :binfile-v3 :status status}
+                 (some? progress) (assoc :progress progress)))]
+
+    (t/testing "a container that finished counts all of its files"
+      (t/is (= 2 (imp/imported-count [(file "a" :import-success nil)
+                                      (file "a" :import-success nil)]))))
+
+    (t/testing "a running container counts the files it left behind"
+      ;; its milestone says it is working on the second file of three
+      (t/is (= 1 (imp/imported-count [(file "a" :import-progress
+                                            {:stage    :pages
+                                             :counters {:files {:current 2 :total 3}
+                                                        :pages {:current 1 :total 5}}})]))))
+
+    (t/testing "a container that has not started has nothing done"
+      (t/is (= 0 (imp/imported-count [(file "a" :import-queued nil)])))
+      (t/is (= 0 (imp/imported-count [(file "a" :import-progress
+                                            {:stage :pages :counters {}})]))))
+
+    (t/testing "the files of every container add up"
+      (t/is (= 3 (imp/imported-count [(file "a" :import-success nil)
+                                      (file "a" :import-success nil)
+                                      (file "b" :import-progress
+                                            {:stage    :pages
+                                             :counters {:files {:current 2 :total 4}}})]))))
+
+    (t/testing "no files, nothing done"
+      (t/is (= 0 (imp/imported-count []))))))
 
 (t/deftest waiting-slot?-is-true-until-a-worker-picks-the-jobs-up
   (t/testing "every file queued is a wizard waiting for a slot"
