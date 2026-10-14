@@ -793,10 +793,6 @@ msgid "dashboard.import.status.ready"
 msgstr "Listo"
 
 #: src/app/main/ui/dashboard/import.cljs
-msgid "dashboard.import.status.waiting"
-msgstr "En espera"
-
-#: src/app/main/ui/dashboard/import.cljs
 msgid "dashboard.import.steps.check"
 msgstr "Comprobación"
 

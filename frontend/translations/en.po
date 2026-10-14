@@ -682,10 +682,6 @@ msgid "dashboard.import.status.ready"
 msgstr "Ready"
 
 #: src/app/main/ui/dashboard/import.cljs
-msgid "dashboard.import.status.waiting"
-msgstr "Waiting"
-
-#: src/app/main/ui/dashboard/import.cljs
 msgid "dashboard.import.steps.label"
 msgstr "Import steps"
 

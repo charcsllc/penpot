@@ -218,15 +218,6 @@
         is-shared?      (:shared entry)
         subtitle        (imp/format-file-size (:size entry))
 
-        ;; the milestone in course and the files already imported are the
-        ;; business of the header: a container reports one milestone for
-        ;; every file it brought, and a row would repeat it
-        [status-icon status-text]
-        (cond
-          ready?                    [i/status-tick (tr "dashboard.import.status.ready")]
-          (= :import-queued status) [i/clock (tr "dashboard.import.status.waiting")]
-          :else                     [nil nil])
-
         file-id         (:file-id entry)
         editing?        (and (some? file-id) (= edition file-id))
 
@@ -315,13 +306,16 @@
                              :aria-label (tr "labels.delete")
                              :icon i/delete}])])
 
-      (when (some? status-text)
+      ;; a row carries its name and its size, and only the state that is not
+      ;; progress: the milestone in course and the files already imported are
+      ;; the business of the header, which writes the milestone once for
+      ;; every file of a container
+      (when ^boolean ready?
         [:div {:class (stl/css :file-status)}
-         (when (some? status-icon)
-           [:> icon* {:icon-id status-icon :size "s"}])
+         [:> icon* {:icon-id i/status-tick :size "s"}]
          [:> text* {:as "span"
                     :typography t/body-medium}
-          status-text]])]
+          (tr "dashboard.import.status.ready")]])]
 
      (when ^boolean (or analyze-error? import-error?)
        [:div {:class (stl/css :file-error)}
