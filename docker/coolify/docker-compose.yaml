@@ -1,0 +1,140 @@
+## Penpot para Coolify (sin SMTP), con el servidor MCP activo.
+##
+## Guía de despliegue y alta de usuarios: README.md (en esta carpeta).
+## Uso como MCP en Claude: MCP-CLAUDE.md (en esta carpeta).
+##
+## - Sin `ports:`: el proxy de Coolify (Traefik) enruta el tráfico y pone el
+##   HTTPS. En Coolify, asigna al servicio `penpot-frontend` el dominio
+##   https://penpot.charcs.net:8080 (el :8080 es el puerto interno).
+## - Sin red propia: Coolify crea una red para cada stack.
+## - PENPOT_SECRET_KEY y POSTGRES_PASSWORD valen `llave_secreta_2026` por
+##   defecto (instancia de prueba). Para cambiarlas, defínelas en Coolify
+##   (Environment Variables) antes del primer despliegue.
+##
+## Flags (PENPOT_FLAGS):
+## - disable-registration: nadie puede crearse una cuenta desde la web; los
+##   usuarios se crean con manage.py (ver README.md).
+## - disable-email-verification: no hay SMTP, así que no se verifica el email.
+## - enable-prepl-server: lo necesita manage.py. Solo escucha en localhost
+##   dentro del contenedor del backend.
+## - enable-mcp: publica el servidor MCP en /mcp/stream y /mcp/ws.
+## - enable-admin-console: consola de administración en /admin-console.
+##
+## Las cookies seguras y el resto de valores por defecto quedan activos.
+## Lista completa de flags y variables:
+## https://help.penpot.app/technical-guide/configuration/
+
+services:
+  penpot-frontend:
+    image: "penpotapp/frontend:${PENPOT_VERSION:-2.18}"
+    restart: always
+    volumes:
+      - penpot_assets:/opt/data/assets
+    depends_on:
+      - penpot-backend
+      - penpot-admin-console
+      - penpot-mcp
+      - penpot-exporter
+    environment:
+      PENPOT_FLAGS: ${PENPOT_FLAGS:-disable-registration disable-email-verification enable-prepl-server enable-mcp enable-admin-console}
+      PENPOT_PUBLIC_URI: ${PENPOT_PUBLIC_URI:-https://penpot.charcs.net}
+      PENPOT_HTTP_SERVER_MAX_BODY_SIZE: 367001600
+      PENPOT_ADMIN_CONSOLE_URI: http://penpot-admin-console:3000
+      # Descomenta si el VPS tiene IPv6 desactivado en el kernel y nginx no
+      # arranca:
+      # PENPOT_DISABLE_IPV6_LISTEN: "true"
+
+  penpot-backend:
+    image: "penpotapp/backend:${PENPOT_VERSION:-2.18}"
+    restart: always
+    volumes:
+      - penpot_assets:/opt/data/assets
+    depends_on:
+      penpot-postgres:
+        condition: service_healthy
+      penpot-valkey:
+        condition: service_healthy
+    environment:
+      PENPOT_FLAGS: ${PENPOT_FLAGS:-disable-registration disable-email-verification enable-prepl-server enable-mcp enable-admin-console}
+      PENPOT_PUBLIC_URI: ${PENPOT_PUBLIC_URI:-https://penpot.charcs.net}
+      PENPOT_SECRET_KEY: ${PENPOT_SECRET_KEY:-llave_secreta_2026}
+      PENPOT_HTTP_SERVER_MAX_BODY_SIZE: 367001600
+      PENPOT_HTTP_SERVER_MAX_MULTIPART_BODY_SIZE: 367001600
+      PENPOT_DATABASE_URI: postgresql://penpot-postgres/penpot
+      PENPOT_DATABASE_USERNAME: penpot
+      PENPOT_DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-llave_secreta_2026}
+      PENPOT_ADMIN_CONSOLE_URI: http://penpot-admin-console:3000
+      PENPOT_REDIS_URI: redis://penpot-valkey/0
+      PENPOT_OBJECTS_STORAGE_BACKEND: fs
+      PENPOT_OBJECTS_STORAGE_FS_DIRECTORY: /opt/data/assets
+      PENPOT_TELEMETRY_ENABLED: "true"
+      PENPOT_TELEMETRY_REFERER: compose
+
+  penpot-admin-console:
+    image: "penpotapp/admin-console:${PENPOT_VERSION:-2.18}"
+    restart: always
+    depends_on:
+      penpot-postgres:
+        condition: service_healthy
+    environment:
+      PENPOT_PUBLIC_URI: ${PENPOT_PUBLIC_URI:-https://penpot.charcs.net}
+      PENPOT_SECRET_KEY: ${PENPOT_SECRET_KEY:-llave_secreta_2026}
+      PENPOT_DATABASE_URI: postgresql://penpot-postgres/penpot
+      PENPOT_DATABASE_USERNAME: penpot
+      PENPOT_DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-llave_secreta_2026}
+      PENPOT_INTERNAL_URI: http://penpot-frontend:8080
+
+  ## Servidor MCP en modo multiusuario: cada cliente (Claude) se identifica
+  ## con la clave MCP que genera cada usuario en Penpot.
+  penpot-mcp:
+    image: "penpotapp/mcp:${PENPOT_VERSION:-2.18}"
+    restart: always
+
+  penpot-exporter:
+    image: "penpotapp/exporter:${PENPOT_VERSION:-2.18}"
+    restart: always
+    depends_on:
+      penpot-valkey:
+        condition: service_healthy
+    environment:
+      PENPOT_FLAGS: ${PENPOT_FLAGS:-disable-registration disable-email-verification enable-prepl-server enable-mcp enable-admin-console}
+      PENPOT_PUBLIC_URI: ${PENPOT_PUBLIC_URI:-https://penpot.charcs.net}
+      PENPOT_SECRET_KEY: ${PENPOT_SECRET_KEY:-llave_secreta_2026}
+      PENPOT_INTERNAL_URI: http://penpot-frontend:8080
+      PENPOT_REDIS_URI: redis://penpot-valkey/0
+
+  penpot-postgres:
+    image: "postgres:15"
+    restart: always
+    stop_signal: SIGINT
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U penpot"]
+      interval: 2s
+      timeout: 10s
+      retries: 5
+      start_period: 2s
+    volumes:
+      - penpot_postgres_v15:/var/lib/postgresql/data
+    environment:
+      POSTGRES_INITDB_ARGS: --data-checksums
+      POSTGRES_DB: penpot
+      POSTGRES_USER: penpot
+      # Postgres solo lee esta contraseña al crear la base de datos (primer
+      # despliegue). Si la cambias después, el backend no podrá conectarse.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-llave_secreta_2026}
+
+  penpot-valkey:
+    image: valkey/valkey:8.1
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "valkey-cli ping | grep PONG"]
+      interval: 1s
+      timeout: 3s
+      retries: 5
+      start_period: 3s
+    environment:
+      VALKEY_EXTRA_FLAGS: --maxmemory 128mb --maxmemory-policy volatile-lfu
+
+volumes:
+  penpot_postgres_v15:
+  penpot_assets:
